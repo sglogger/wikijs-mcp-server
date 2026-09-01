@@ -35,6 +35,16 @@ const localeParam = z
     `Locale code of the page, e.g. "en" or "de". Optional — defaults to "${config.WIKIJS_DEFAULT_LOCALE}". Only set this if the wiki uses multiple languages.`,
   );
 
+// LLMs frequently send numbers/booleans/arrays as strings — accept both.
+const flexBool = z.preprocess(
+  (v) => (v === 'true' ? true : v === 'false' ? false : v),
+  z.boolean(),
+);
+const flexTags = z.preprocess(
+  (v) => (typeof v === 'string' ? v.split(',').map((t) => t.trim()).filter(Boolean) : v),
+  z.array(z.string()),
+);
+
 function transliterate(text: string): string {
   return text
     .toLowerCase()
@@ -115,7 +125,7 @@ export function buildServer(): McpServer {
         'Use this to get an overview of the wiki or to find the id/path of a page when you only roughly know what you are looking for. ' +
         'For keyword search in page content use wiki_search instead. This tool only reads data and is always safe to call.',
       inputSchema: {
-        limit: z
+        limit: z.coerce
           .number()
           .int()
           .min(1)
@@ -126,19 +136,27 @@ export function buildServer(): McpServer {
           .enum(['ID', 'PATH', 'TITLE', 'CREATED', 'UPDATED'])
           .optional()
           .describe('Sort order. Use UPDATED to see recently changed pages first. Default: TITLE.'),
-        tags: z
-          .array(z.string())
+        path: z
+          .string()
+          .optional()
+          .describe('Optional path prefix filter, e.g. "ctf2026" lists only pages below that section. "*" or empty means no filter (all pages).'),
+        tags: flexTags
           .optional()
           .describe('Only return pages that have ALL of these tags, e.g. ["howto", "backup"].'),
         locale: localeParam,
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ limit, orderBy, tags, locale }) => {
+    async ({ limit, orderBy, path, tags, locale }) => {
       try {
-        const pages = await client.listPages({ limit, orderBy, tags, locale });
+        let pages = await client.listPages({ limit, orderBy, tags, locale });
+        const prefix = path?.trim() ? normalizePath(path, locale ?? config.WIKIJS_DEFAULT_LOCALE) : '';
+        if (prefix) {
+          const want = fuzzyPathKey(prefix);
+          pages = pages.filter((p) => fuzzyPathKey(p.path).startsWith(want));
+        }
         return success(
-          `Found ${pages.length} page(s). Cite the "url" of any page you quote in your answer.`,
+          `Found ${pages.length} page(s)${prefix ? ` under "${prefix}"` : ''}. Cite the "url" of any page you quote in your answer.`,
           pages.map((p) => ({ ...p, url: pageUrl(p.path, p.locale) })),
         );
       } catch (error) {
@@ -156,7 +174,7 @@ export function buildServer(): McpServer {
         'If you do not know the id or path yet, first call wiki_search (keyword search) or wiki_list_pages (overview) to find it. ' +
         'This tool only reads data and is always safe to call.',
       inputSchema: {
-        id: z
+        id: z.coerce
           .number()
           .int()
           .optional()
@@ -278,7 +296,7 @@ export function buildServer(): McpServer {
       }
 
       const effectiveLocale = locale ?? config.WIKIJS_DEFAULT_LOCALE;
-      const pathFilter = path?.trim() ? normalizePath(path, effectiveLocale) : undefined;
+      const pathFilter = (path?.trim() ? normalizePath(path, effectiveLocale) : '') || undefined;
 
       const result = await client.searchPages(trimmed, pathFilter, locale);
       if (result.totalHits > 0) {
@@ -355,12 +373,10 @@ export function buildServer(): McpServer {
           .string()
           .optional()
           .describe('One-sentence summary of the page, shown in search results. Optional but recommended.'),
-        tags: z
-          .array(z.string())
+        tags: flexTags
           .optional()
           .describe('Tags for categorization, lowercase, e.g. ["howto", "backup"]. Optional.'),
-        isPublished: z
-          .boolean()
+        isPublished: flexBool
           .optional()
           .describe('true (default) = immediately visible to wiki users; false = saved as unpublished draft.'),
         locale: localeParam,
@@ -421,7 +437,7 @@ export function buildServer(): McpServer {
         'IMPORTANT: the "content" field REPLACES the entire page content. To change only part of a page: 1) call wiki_get_page to load the current content, 2) apply your edits to that full text, 3) pass the complete modified Markdown here. ' +
         'Fields you omit stay unchanged. Returns id and path of the updated page.',
       inputSchema: {
-        id: z
+        id: z.coerce
           .number()
           .int()
           .describe('Numeric id of the page to update, e.g. 42. Get it from wiki_get_page, wiki_list_pages or wiki_search.'),
@@ -435,11 +451,10 @@ export function buildServer(): McpServer {
           .optional()
           .describe('New path (moves the page), e.g. "archive/old-concept". Omit to keep the current path.'),
         description: z.string().optional().describe('New one-sentence summary. Omit to keep the current one.'),
-        tags: z
-          .array(z.string())
+        tags: flexTags
           .optional()
           .describe('New COMPLETE tag list (replaces all existing tags). Omit to keep current tags.'),
-        isPublished: z.boolean().optional().describe('true = published, false = hidden draft. Omit to keep current state.'),
+        isPublished: flexBool.optional().describe('true = published, false = hidden draft. Omit to keep current state.'),
         locale: localeParam,
       },
       annotations: { destructiveHint: true },
@@ -475,7 +490,7 @@ export function buildServer(): McpServer {
         'Verify you have the right page first via wiki_get_page (check title and path). ' +
         'To merely hide a page instead of deleting it, use wiki_update_page with isPublished=false.',
       inputSchema: {
-        id: z
+        id: z.coerce
           .number()
           .int()
           .describe('Numeric id of the page to delete, e.g. 42. Double-check via wiki_get_page before deleting.'),
