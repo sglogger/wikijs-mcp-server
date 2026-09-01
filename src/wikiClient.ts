@@ -1,3 +1,5 @@
+import { pathMatchesPrefix } from './paths.js';
+
 export type PageListItem = {
   id: number;
   path: string;
@@ -188,10 +190,11 @@ export class WikiJsClient {
   ) {
     const { pathPrefix, locale, maxPages = 200, concurrency = 5 } = opts;
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    const prefix = pathPrefix?.toLowerCase();
+    const prefix = pathPrefix ?? '';
 
     const all = await this.listPages({ locale });
-    const candidates = all.filter((p) => !prefix || p.path.toLowerCase().startsWith(prefix));
+    // Segment-aware prefix match: "ctf2026" must not pull in "ctf20260".
+    const candidates = all.filter((p) => pathMatchesPrefix(p.path, prefix));
     const toScan = candidates.slice(0, maxPages);
 
     const matches: { id: number; path: string; title: string; description: string; locale: string; snippet: string }[] = [];
