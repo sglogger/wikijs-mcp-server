@@ -194,7 +194,7 @@ export class WikiJsClient {
     const candidates = all.filter((p) => !prefix || p.path.toLowerCase().startsWith(prefix));
     const toScan = candidates.slice(0, maxPages);
 
-    const matches: { id: number; path: string; title: string; description: string; snippet: string }[] = [];
+    const matches: { id: number; path: string; title: string; description: string; locale: string; snippet: string }[] = [];
     let cursor = 0;
     const worker = async () => {
       while (cursor < toScan.length) {
@@ -212,7 +212,7 @@ export class WikiJsClient {
           idx >= 0
             ? page.content.slice(Math.max(0, idx - 60), idx + 120).replace(/\s+/g, ' ').trim()
             : page.description || page.title;
-        matches.push({ id: page.id, path: page.path, title: page.title, description: page.description, snippet: `…${snippet}…` });
+        matches.push({ id: page.id, path: page.path, title: page.title, description: page.description, locale: page.locale, snippet: `…${snippet}…` });
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, toScan.length) }, worker));

@@ -82,10 +82,16 @@ function normalizePath(raw: string, locale: string): string {
   return segments.map(slugifySegment).filter(Boolean).join('/');
 }
 
+// Browser URL of a page, e.g. https://wiki.example.com/en/infrastructure/backup
+function pageUrl(path: string, locale: string): string {
+  return `${config.WIKIJS_BASE_URL}/${locale}/${path}`;
+}
+
 const SERVER_INSTRUCTIONS = `This server manages a Wiki.js knowledge base.
 
 Recommended workflows:
 - Answer a question from the wiki: wiki_search with short keywords, then wiki_get_page with an id/path from the results.
+- Every returned page carries a "url" field. When you present information from the wiki in your chat answer, ALWAYS cite the source page as a Markdown link using that url, e.g. "Quelle: [CTF Hints](https://wiki.example.com/en/ctf2026/hints)".
 - Create a page from a vague request (e.g. "create a page with ssh dummy accounts"): 1) wiki_search to check whether a similar page exists (update it instead of duplicating), 2) optionally wiki_list_pages to see the existing path structure and place the new page consistently, 3) write complete, well-structured Markdown content yourself (start with a "# Heading", use sections, tables and fenced code blocks where useful — never create a near-empty page), 4) wiki_create_page. The "path" is optional — it is derived from the title automatically; sloppy paths are normalized.
 - Edit a page: wiki_get_page first, modify the FULL Markdown, then wiki_update_page (content replaces the whole page).
 
@@ -131,7 +137,10 @@ export function buildServer(): McpServer {
     async ({ limit, orderBy, tags, locale }) => {
       try {
         const pages = await client.listPages({ limit, orderBy, tags, locale });
-        return success(`Found ${pages.length} page(s).`, pages);
+        return success(
+          `Found ${pages.length} page(s). Cite the "url" of any page you quote in your answer.`,
+          pages.map((p) => ({ ...p, url: pageUrl(p.path, p.locale) })),
+        );
       } catch (error) {
         return failure(error);
       }
@@ -174,13 +183,19 @@ export function buildServer(): McpServer {
         const effectiveLocale = locale ?? config.WIKIJS_DEFAULT_LOCALE;
         if (id !== undefined) {
           const page = await client.getPageById(id);
-          return success(`Page ${page.id} ("${page.title}", path: ${page.path}).`, page);
+          return success(
+            `Page ${page.id} ("${page.title}", path: ${page.path}). Cite the "url" as source when quoting it.`,
+            { ...page, url: pageUrl(page.path, page.locale) },
+          );
         }
 
         const normalized = normalizePath(path!, effectiveLocale);
         try {
           const page = await client.getPageByPath(normalized, effectiveLocale);
-          return success(`Page ${page.id} ("${page.title}", path: ${page.path}).`, page);
+          return success(
+            `Page ${page.id} ("${page.title}", path: ${page.path}). Cite the "url" as source when quoting it.`,
+            { ...page, url: pageUrl(page.path, page.locale) },
+          );
         } catch (lookupError) {
           // Fuzzy fallback: resolve punctuation differences ("10-0-0-0" vs
           // "10.0.0.0") and locale mismatches against the real page list.
@@ -201,8 +216,8 @@ export function buildServer(): McpServer {
                     .join(', ')}.`
                 : '';
             return success(
-              `Page ${page.id} ("${page.title}", path: ${page.path}) — resolved from your input "${path}".${note}`,
-              page,
+              `Page ${page.id} ("${page.title}", path: ${page.path}) — resolved from your input "${path}".${note} Cite the "url" as source when quoting it.`,
+              { ...page, url: pageUrl(page.path, page.locale) },
             );
           }
 
@@ -258,7 +273,7 @@ export function buildServer(): McpServer {
         const pages = await client.listPages({ orderBy: 'TITLE', locale });
         return success(
           `Wildcard query — returning all ${pages.length} page(s) instead of a full-text search. Use wiki_get_page with an id or path to read one.`,
-          pages,
+          pages.map((p) => ({ ...p, url: pageUrl(p.path, p.locale) })),
         );
       }
 
@@ -268,8 +283,8 @@ export function buildServer(): McpServer {
       const result = await client.searchPages(trimmed, pathFilter, locale);
       if (result.totalHits > 0) {
         return success(
-          `${result.totalHits} hit(s) for "${trimmed}". Use wiki_get_page with an id or path from the results to read a page.`,
-          result,
+          `${result.totalHits} hit(s) for "${trimmed}". Use wiki_get_page with an id or path from the results to read a page, and cite its "url" as source in your answer.`,
+          { ...result, results: result.results.map((r) => ({ ...r, url: pageUrl(r.path, r.locale) })) },
         );
       }
 
@@ -280,7 +295,7 @@ export function buildServer(): McpServer {
       if (grep.matches.length > 0) {
         return success(
           `The Wiki.js search index returned 0 hits for "${trimmed}", but a direct content scan found ${grep.matches.length} page(s) containing it. Use wiki_get_page with an id or path to read one. (Admin hint: the Wiki.js search index seems incomplete — rebuild it under Administration → Search Engine.)`,
-          grep.matches,
+          grep.matches.map((m) => ({ ...m, url: pageUrl(m.path, m.locale) })),
         );
       }
 
@@ -289,7 +304,7 @@ export function buildServer(): McpServer {
         if (wikiWide.matches.length > 0) {
           return success(
             `No pages exist under path "${pathFilter}", but "${trimmed}" was found on ${wikiWide.matches.length} page(s) elsewhere in the wiki:`,
-            wikiWide.matches,
+            wikiWide.matches.map((m) => ({ ...m, url: pageUrl(m.path, m.locale) })),
           );
         }
       }
@@ -387,7 +402,10 @@ export function buildServer(): McpServer {
           locale: effectiveLocale,
           tags: tags ?? [],
         });
-        return success(`Created page ${page.id} ("${page.title}") at path "${page.path}".`, page);
+        return success(
+          `Created page ${page.id} ("${page.title}") at path "${page.path}". Share the "url" with the user.`,
+          { ...page, url: pageUrl(page.path, effectiveLocale) },
+        );
       } catch (error) {
         return failure(error);
       }
@@ -437,7 +455,10 @@ export function buildServer(): McpServer {
           isPublished,
           locale,
         });
-        return success(`Updated page ${id}.`, page);
+        return success(
+          `Updated page ${id}.${'path' in page && page.path ? ' Share the "url" with the user.' : ''}`,
+          'path' in page && page.path ? { ...page, url: pageUrl(page.path, locale ?? config.WIKIJS_DEFAULT_LOCALE) } : page,
+        );
       } catch (error) {
         return failure(error);
       }
