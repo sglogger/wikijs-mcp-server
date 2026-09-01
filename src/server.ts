@@ -35,17 +35,37 @@ const localeParam = z
     `Locale code of the page, e.g. "en" or "de". Optional — defaults to "${config.WIKIJS_DEFAULT_LOCALE}". Only set this if the wiki uses multiple languages.`,
   );
 
-function slugifySegment(segment: string): string {
-  return segment
+function transliterate(text: string): string {
+  return text
     .toLowerCase()
     .replace(/ä/g, 'ae')
     .replace(/ö/g, 'oe')
     .replace(/ü/g, 'ue')
     .replace(/ß/g, 'ss')
     .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function slugifySegment(segment: string): string {
+  // Dots and underscores are valid in Wiki.js paths (e.g. "10.0.0.0-27") -- keep them.
+  return transliterate(segment)
+    .replace(/[^a-z0-9._]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+// Aggressive comparison key: all punctuation collapses to "-", so
+// "10.0.0.0-27-hosts" and "10-0-0-0-27-hosts" compare equal.
+function fuzzyPathKey(path: string): string {
+  return path
+    .split('/')
+    .filter(Boolean)
+    .map((seg) =>
+      transliterate(seg)
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, ''),
+    )
+    .filter(Boolean)
+    .join('/');
 }
 
 // Accepts sloppy input ("/de/Infrastruktur/Backup Konzept") and returns the
@@ -152,11 +172,55 @@ export function buildServer(): McpServer {
           );
         }
         const effectiveLocale = locale ?? config.WIKIJS_DEFAULT_LOCALE;
-        const page =
-          id !== undefined
-            ? await client.getPageById(id)
-            : await client.getPageByPath(normalizePath(path!, effectiveLocale), effectiveLocale);
-        return success(`Page ${page.id} ("${page.title}", path: ${page.path}).`, page);
+        if (id !== undefined) {
+          const page = await client.getPageById(id);
+          return success(`Page ${page.id} ("${page.title}", path: ${page.path}).`, page);
+        }
+
+        const normalized = normalizePath(path!, effectiveLocale);
+        try {
+          const page = await client.getPageByPath(normalized, effectiveLocale);
+          return success(`Page ${page.id} ("${page.title}", path: ${page.path}).`, page);
+        } catch (lookupError) {
+          // Fuzzy fallback: resolve punctuation differences ("10-0-0-0" vs
+          // "10.0.0.0") and locale mismatches against the real page list.
+          const pages = await client.listPages({});
+          const want = fuzzyPathKey(normalized);
+          let matches = pages.filter((p) => fuzzyPathKey(p.path) === want);
+          if (matches.length > 1) {
+            const localeMatches = matches.filter((p) => p.locale === effectiveLocale);
+            if (localeMatches.length > 0) matches = localeMatches;
+          }
+          if (matches.length >= 1) {
+            const page = await client.getPageById(matches[0].id);
+            const note =
+              matches.length > 1
+                ? ` Note: ${matches.length} similar pages exist; the others are ${matches
+                    .slice(1)
+                    .map((m) => `id ${m.id} (${m.locale}) ${m.path}`)
+                    .join(', ')}.`
+                : '';
+            return success(
+              `Page ${page.id} ("${page.title}", path: ${page.path}) — resolved from your input "${path}".${note}`,
+              page,
+            );
+          }
+
+          const lastSegment = want.split('/').pop() ?? '';
+          const similar = lastSegment
+            ? pages.filter((p) => fuzzyPathKey(p.path).includes(lastSegment)).slice(0, 10)
+            : [];
+          if (similar.length > 0) {
+            return failure(
+              new Error(
+                `${(lookupError as Error).message} Similar pages that DO exist — call wiki_get_page again with one of these ids: ${similar
+                  .map((p) => `id ${p.id}: ${p.path} ("${p.title}")`)
+                  .join('; ')}`,
+              ),
+            );
+          }
+          throw lookupError;
+        }
       } catch (error) {
         return failure(error);
       }

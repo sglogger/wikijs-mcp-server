@@ -24,6 +24,7 @@ Alle Tools und Parameter sind ausführlich beschrieben (inkl. Beispielen und Wor
 - **Pfad-Normalisierung**: Führende Slashes, Locale-Präfixe, URLs, Umlaute, Leerzeichen und Großschreibung werden automatisch bereinigt (`/de/Infrastruktur/Backup Konzept` → `infrastruktur/backup-konzept`).
 - **Duplikat-Schutz**: Existiert am Zielpfad schon eine Seite, schlägt `wiki_create_page` fehl und nennt die vorhandene Seiten-ID mit dem Hinweis, stattdessen `wiki_update_page` zu nutzen.
 - **Such-Fallback**: Liefert der Wiki.js-Suchindex 0 Treffer (die Standard-„Database"-Engine findet Begriffe im Seiteninhalt oft nicht), scannt der Server die Seiteninhalte direkt (bis 200 Seiten) und liefert Treffer inkl. Text-Snippet. Pfadfilter werden dabei normalisiert (`CTF2026` → `ctf2026`).
+- **Unscharfe Pfad-Auflösung**: Schlägt `wiki_get_page` mit einem Pfad fehl, wird er tolerant gegen die echte Seitenliste gematcht — Groß-/Kleinschreibung, Punkt-vs-Bindestrich (`10-0-0-0-27` findet `10.0.0.0-27`) und Locale-Unterschiede werden aufgelöst; bei Beinahe-Treffern werden existierende ähnliche Seiten mit ihren IDs vorgeschlagen.
 
 ## Voraussetzungen
 
