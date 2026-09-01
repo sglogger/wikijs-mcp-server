@@ -179,6 +179,47 @@ export class WikiJsClient {
     return data.pages.search;
   }
 
+  // Direct content scan as a fallback for weak/stale Wiki.js search indexes:
+  // fetches page contents and greps them locally. All words of the query must
+  // appear (case-insensitive) in path, title, description or content.
+  async grepPages(
+    query: string,
+    opts: { pathPrefix?: string; locale?: string; maxPages?: number; concurrency?: number } = {},
+  ) {
+    const { pathPrefix, locale, maxPages = 200, concurrency = 5 } = opts;
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const prefix = pathPrefix?.toLowerCase();
+
+    const all = await this.listPages({ locale });
+    const candidates = all.filter((p) => !prefix || p.path.toLowerCase().startsWith(prefix));
+    const toScan = candidates.slice(0, maxPages);
+
+    const matches: { id: number; path: string; title: string; description: string; snippet: string }[] = [];
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < toScan.length) {
+        const item = toScan[cursor++];
+        let page: Page;
+        try {
+          page = await this.getPageById(item.id);
+        } catch {
+          continue;
+        }
+        const haystack = `${page.path}\n${page.title}\n${page.description}\n${page.content}`.toLowerCase();
+        if (!words.every((w) => haystack.includes(w))) continue;
+        const idx = page.content.toLowerCase().indexOf(words[0]);
+        const snippet =
+          idx >= 0
+            ? page.content.slice(Math.max(0, idx - 60), idx + 120).replace(/\s+/g, ' ').trim()
+            : page.description || page.title;
+        matches.push({ id: page.id, path: page.path, title: page.title, description: page.description, snippet: `…${snippet}…` });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, toScan.length) }, worker));
+
+    return { matches, scannedPages: toScan.length, candidatePages: candidates.length };
+  }
+
   async createPage(input: {
     title: string;
     path: string;

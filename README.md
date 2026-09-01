@@ -23,6 +23,7 @@ Alle Tools und Parameter sind ausführlich beschrieben (inkl. Beispielen und Wor
 - **Auto-Pfad**: Bei `wiki_create_page` ist `path` optional und wird aus dem Titel abgeleitet („SSH Dummy Accounts" → `ssh-dummy-accounts`).
 - **Pfad-Normalisierung**: Führende Slashes, Locale-Präfixe, URLs, Umlaute, Leerzeichen und Großschreibung werden automatisch bereinigt (`/de/Infrastruktur/Backup Konzept` → `infrastruktur/backup-konzept`).
 - **Duplikat-Schutz**: Existiert am Zielpfad schon eine Seite, schlägt `wiki_create_page` fehl und nennt die vorhandene Seiten-ID mit dem Hinweis, stattdessen `wiki_update_page` zu nutzen.
+- **Such-Fallback**: Liefert der Wiki.js-Suchindex 0 Treffer (die Standard-„Database"-Engine findet Begriffe im Seiteninhalt oft nicht), scannt der Server die Seiteninhalte direkt (bis 200 Seiten) und liefert Treffer inkl. Text-Snippet. Pfadfilter werden dabei normalisiert (`CTF2026` → `ctf2026`).
 
 ## Voraussetzungen
 

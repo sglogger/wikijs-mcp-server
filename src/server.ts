@@ -169,6 +169,7 @@ export function buildServer(): McpServer {
       'Full-text search across the Wiki.js knowledge base. Returns matching pages with id, title, description and path, plus the total number of hits. ' +
       'Use SHORT keyword queries (e.g. "backup postgres"), not full sentences or questions. ' +
       'A query of "*" (or an empty query) returns ALL pages instead of searching. ' +
+      'If the search index finds nothing, page contents are scanned directly as a fallback, so content matches are found even with a weak index. ' +
       'To read the actual content of a result, call wiki_get_page with the returned id or path afterwards. ' +
       'This tool only reads data and is always safe to call.',
     inputSchema: {
@@ -196,10 +197,42 @@ export function buildServer(): McpServer {
           pages,
         );
       }
-      const result = await client.searchPages(trimmed, path, locale);
+
+      const effectiveLocale = locale ?? config.WIKIJS_DEFAULT_LOCALE;
+      const pathFilter = path?.trim() ? normalizePath(path, effectiveLocale) : undefined;
+
+      const result = await client.searchPages(trimmed, pathFilter, locale);
+      if (result.totalHits > 0) {
+        return success(
+          `${result.totalHits} hit(s) for "${trimmed}". Use wiki_get_page with an id or path from the results to read a page.`,
+          result,
+        );
+      }
+
+      // The search index found nothing. Wiki.js' default database search
+      // engine often misses words inside page content (or the index is
+      // stale), so fall back to scanning the actual page contents.
+      const grep = await client.grepPages(trimmed, { pathPrefix: pathFilter, locale });
+      if (grep.matches.length > 0) {
+        return success(
+          `The Wiki.js search index returned 0 hits for "${trimmed}", but a direct content scan found ${grep.matches.length} page(s) containing it. Use wiki_get_page with an id or path to read one. (Admin hint: the Wiki.js search index seems incomplete — rebuild it under Administration → Search Engine.)`,
+          grep.matches,
+        );
+      }
+
+      if (pathFilter && grep.candidatePages === 0) {
+        const wikiWide = await client.grepPages(trimmed, { locale });
+        if (wikiWide.matches.length > 0) {
+          return success(
+            `No pages exist under path "${pathFilter}", but "${trimmed}" was found on ${wikiWide.matches.length} page(s) elsewhere in the wiki:`,
+            wikiWide.matches,
+          );
+        }
+      }
+
       return success(
-        `${result.totalHits} hit(s) for "${trimmed}". Use wiki_get_page with an id or path from the results to read a page.`,
-        result,
+        `0 hit(s) for "${trimmed}"${pathFilter ? ` under path "${pathFilter}"` : ''} — the search index AND a direct scan of ${grep.scannedPages} page content(s) found nothing. The term really does not appear${pathFilter ? ' there; try again without the "path" filter' : '; try different or shorter keywords'}.`,
+        { results: [], totalHits: 0 },
       );
     } catch (error) {
       return failure(error);
