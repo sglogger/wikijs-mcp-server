@@ -143,7 +143,7 @@ export class WikiJsClient {
       { id },
     );
     if (!data.pages.single) {
-      throw new Error(`No page with id ${id} found. Use wiki_list_pages or wiki_search_pages to find valid page ids.`);
+      throw new Error(`No page with id ${id} found. Use wiki_list_pages or wiki_search to find valid page ids.`);
     }
     return data.pages.single;
   }
@@ -157,7 +157,7 @@ export class WikiJsClient {
     );
     if (!data.pages.singleByPath) {
       throw new Error(
-        `No page found at path "${path}" (locale "${locale}"). The path must not include a leading slash or the locale prefix. Use wiki_search_pages to find the correct path.`,
+        `No page found at path "${path}" (locale "${locale}"). The path must not include a leading slash or the locale prefix. Use wiki_search to find the correct path.`,
       );
     }
     return data.pages.singleByPath;
@@ -248,7 +248,7 @@ export class WikiJsClient {
     );
     this.assertMutationSucceeded(
       data.pages.update,
-      'Verify the page id with wiki_get_page or wiki_search_pages.',
+      'Verify the page id with wiki_get_page or wiki_search.',
     );
     return data.pages.update.page ?? { id };
   }

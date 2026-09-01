@@ -10,7 +10,7 @@ Wiki.js wird über seine **GraphQL-API** (`/graphql`) mit einem Bearer-API-Key a
 | --- | --- |
 | `wiki_list_pages` | Seiten auflisten (mit Sortierung, Tag- und Locale-Filter) |
 | `wiki_get_page` | Eine Seite per numerischer ID oder Pfad vollständig lesen |
-| `wiki_search_pages` | Volltextsuche über das Wiki |
+| `wiki_search` | Volltextsuche über das Wiki (`"*"` = alle Seiten; Alias: `wiki_search_pages`) |
 | `wiki_create_page` | Neue Seite anlegen (Markdown) |
 | `wiki_update_page` | Bestehende Seite aktualisieren (Achtung: `content` ersetzt den gesamten Inhalt) |
 | `wiki_delete_page` | Seite unwiderruflich löschen |

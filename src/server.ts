@@ -65,11 +65,11 @@ function normalizePath(raw: string, locale: string): string {
 const SERVER_INSTRUCTIONS = `This server manages a Wiki.js knowledge base.
 
 Recommended workflows:
-- Answer a question from the wiki: wiki_search_pages with short keywords, then wiki_get_page with an id/path from the results.
-- Create a page from a vague request (e.g. "create a page with ssh dummy accounts"): 1) wiki_search_pages to check whether a similar page exists (update it instead of duplicating), 2) optionally wiki_list_pages to see the existing path structure and place the new page consistently, 3) write complete, well-structured Markdown content yourself (start with a "# Heading", use sections, tables and fenced code blocks where useful — never create a near-empty page), 4) wiki_create_page. The "path" is optional — it is derived from the title automatically; sloppy paths are normalized.
+- Answer a question from the wiki: wiki_search with short keywords, then wiki_get_page with an id/path from the results.
+- Create a page from a vague request (e.g. "create a page with ssh dummy accounts"): 1) wiki_search to check whether a similar page exists (update it instead of duplicating), 2) optionally wiki_list_pages to see the existing path structure and place the new page consistently, 3) write complete, well-structured Markdown content yourself (start with a "# Heading", use sections, tables and fenced code blocks where useful — never create a near-empty page), 4) wiki_create_page. The "path" is optional — it is derived from the title automatically; sloppy paths are normalized.
 - Edit a page: wiki_get_page first, modify the FULL Markdown, then wiki_update_page (content replaces the whole page).
 
-Never invent page ids — always obtain them from wiki_list_pages, wiki_search_pages or wiki_get_page.`;
+Never invent page ids — always obtain them from wiki_list_pages, wiki_search or wiki_get_page.`;
 
 export function buildServer(): McpServer {
   const server = new McpServer(
@@ -87,7 +87,7 @@ export function buildServer(): McpServer {
       description:
         'List pages of the Wiki.js knowledge base. Returns for every page: numeric id, path, title, description, tags and timestamps. ' +
         'Use this to get an overview of the wiki or to find the id/path of a page when you only roughly know what you are looking for. ' +
-        'For keyword search in page content use wiki_search_pages instead. This tool only reads data and is always safe to call.',
+        'For keyword search in page content use wiki_search instead. This tool only reads data and is always safe to call.',
       inputSchema: {
         limit: z
           .number()
@@ -124,14 +124,14 @@ export function buildServer(): McpServer {
       title: 'Read a wiki page',
       description:
         'Read the full content (Markdown) and metadata of ONE wiki page. Provide EITHER the numeric "id" OR the "path" of the page — exactly one of the two is required. ' +
-        'If you do not know the id or path yet, first call wiki_search_pages (keyword search) or wiki_list_pages (overview) to find it. ' +
+        'If you do not know the id or path yet, first call wiki_search (keyword search) or wiki_list_pages (overview) to find it. ' +
         'This tool only reads data and is always safe to call.',
       inputSchema: {
         id: z
           .number()
           .int()
           .optional()
-          .describe('Numeric page id (integer), e.g. 42. Get it from wiki_list_pages or wiki_search_pages.'),
+          .describe('Numeric page id (integer), e.g. 42. Get it from wiki_list_pages or wiki_search.'),
         path: z
           .string()
           .optional()
@@ -147,7 +147,7 @@ export function buildServer(): McpServer {
         if (id === undefined && !path) {
           return failure(
             new Error(
-              'Provide either "id" (numeric page id) or "path" (page path like "team/onboarding"). Use wiki_search_pages or wiki_list_pages to find them.',
+              'Provide either "id" (numeric page id) or "path" (page path like "team/onboarding"). Use wiki_search or wiki_list_pages to find them.',
             ),
           );
         }
@@ -163,39 +163,55 @@ export function buildServer(): McpServer {
     },
   );
 
+  const searchToolDefinition = {
+    title: 'Search the wiki',
+    description:
+      'Full-text search across the Wiki.js knowledge base. Returns matching pages with id, title, description and path, plus the total number of hits. ' +
+      'Use SHORT keyword queries (e.g. "backup postgres"), not full sentences or questions. ' +
+      'A query of "*" (or an empty query) returns ALL pages instead of searching. ' +
+      'To read the actual content of a result, call wiki_get_page with the returned id or path afterwards. ' +
+      'This tool only reads data and is always safe to call.',
+    inputSchema: {
+      query: z
+        .string()
+        .describe('Search keywords, e.g. "vpn setup". Keep it short — 1 to 4 keywords work best. Use "*" to list all pages.'),
+      path: z
+        .string()
+        .optional()
+        .describe('Restrict the search to a path prefix, e.g. "infrastructure". Optional.'),
+      locale: localeParam,
+    },
+    annotations: { readOnlyHint: true },
+  };
+
+  const searchHandler = async ({ query, path, locale }: { query: string; path?: string; locale?: string }) => {
+    try {
+      // Weak models often try "*" or "" to mean "everything" — serve that
+      // via the page list instead of a fruitless full-text search.
+      const trimmed = query.trim();
+      if (trimmed === '' || /^[*%.]+$/.test(trimmed) || trimmed.toLowerCase() === 'all') {
+        const pages = await client.listPages({ orderBy: 'TITLE', locale });
+        return success(
+          `Wildcard query — returning all ${pages.length} page(s) instead of a full-text search. Use wiki_get_page with an id or path to read one.`,
+          pages,
+        );
+      }
+      const result = await client.searchPages(trimmed, path, locale);
+      return success(
+        `${result.totalHits} hit(s) for "${trimmed}". Use wiki_get_page with an id or path from the results to read a page.`,
+        result,
+      );
+    } catch (error) {
+      return failure(error);
+    }
+  };
+
+  server.registerTool('wiki_search', searchToolDefinition, searchHandler);
+  // Alias under the longer name so both spellings a model might guess work.
   server.registerTool(
     'wiki_search_pages',
-    {
-      title: 'Search the wiki',
-      description:
-        'Full-text search across the Wiki.js knowledge base. Returns matching pages with id, title, description and path, plus the total number of hits. ' +
-        'Use SHORT keyword queries (e.g. "backup postgres"), not full sentences or questions. ' +
-        'To read the actual content of a result, call wiki_get_page with the returned id or path afterwards. ' +
-        'This tool only reads data and is always safe to call.',
-      inputSchema: {
-        query: z
-          .string()
-          .min(1)
-          .describe('Search keywords, e.g. "vpn setup". Keep it short — 1 to 4 keywords work best.'),
-        path: z
-          .string()
-          .optional()
-          .describe('Restrict the search to a path prefix, e.g. "infrastructure". Optional.'),
-        locale: localeParam,
-      },
-      annotations: { readOnlyHint: true },
-    },
-    async ({ query, path, locale }) => {
-      try {
-        const result = await client.searchPages(query, path, locale);
-        return success(
-          `${result.totalHits} hit(s) for "${query}". Use wiki_get_page with an id or path from the results to read a page.`,
-          result,
-        );
-      } catch (error) {
-        return failure(error);
-      }
-    },
+    { ...searchToolDefinition, description: `Alias of wiki_search — identical behavior. ${searchToolDefinition.description}` },
+    searchHandler,
   );
 
   if (config.WIKIJS_READ_ONLY) {
@@ -209,7 +225,7 @@ export function buildServer(): McpServer {
       title: 'Create a wiki page',
       description:
         'Create a NEW page in the wiki. If a page already exists at the target path, this fails and tells you the existing page id — use wiki_update_page then. ' +
-        'Before creating, consider calling wiki_search_pages to check whether a similar page already exists. ' +
+        'Before creating, consider calling wiki_search to check whether a similar page already exists. ' +
         'Write complete, well-structured Markdown for "content" — never create a near-empty page. Returns the id and path of the created page.',
       inputSchema: {
         title: z.string().min(1).describe('Human-readable page title, e.g. "Backup Concept" or "SSH Dummy Accounts".'),
@@ -293,7 +309,7 @@ export function buildServer(): McpServer {
         id: z
           .number()
           .int()
-          .describe('Numeric id of the page to update, e.g. 42. Get it from wiki_get_page, wiki_list_pages or wiki_search_pages.'),
+          .describe('Numeric id of the page to update, e.g. 42. Get it from wiki_get_page, wiki_list_pages or wiki_search.'),
         content: z
           .string()
           .optional()
