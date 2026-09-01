@@ -35,11 +35,50 @@ const localeParam = z
     `Locale code of the page, e.g. "en" or "de". Optional — defaults to "${config.WIKIJS_DEFAULT_LOCALE}". Only set this if the wiki uses multiple languages.`,
   );
 
+function slugifySegment(segment: string): string {
+  return segment
+    .toLowerCase()
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+// Accepts sloppy input ("/de/Infrastruktur/Backup Konzept") and returns the
+// canonical Wiki.js form ("infrastruktur/backup-konzept").
+function normalizePath(raw: string, locale: string): string {
+  let segments = raw
+    .trim()
+    .replace(/^https?:\/\/[^/]+/i, '')
+    .split('/')
+    .filter(Boolean);
+  if (segments.length > 1 && segments[0].toLowerCase() === locale.toLowerCase()) {
+    segments = segments.slice(1);
+  }
+  return segments.map(slugifySegment).filter(Boolean).join('/');
+}
+
+const SERVER_INSTRUCTIONS = `This server manages a Wiki.js knowledge base.
+
+Recommended workflows:
+- Answer a question from the wiki: wiki_search_pages with short keywords, then wiki_get_page with an id/path from the results.
+- Create a page from a vague request (e.g. "create a page with ssh dummy accounts"): 1) wiki_search_pages to check whether a similar page exists (update it instead of duplicating), 2) optionally wiki_list_pages to see the existing path structure and place the new page consistently, 3) write complete, well-structured Markdown content yourself (start with a "# Heading", use sections, tables and fenced code blocks where useful — never create a near-empty page), 4) wiki_create_page. The "path" is optional — it is derived from the title automatically; sloppy paths are normalized.
+- Edit a page: wiki_get_page first, modify the FULL Markdown, then wiki_update_page (content replaces the whole page).
+
+Never invent page ids — always obtain them from wiki_list_pages, wiki_search_pages or wiki_get_page.`;
+
 export function buildServer(): McpServer {
-  const server = new McpServer({
-    name: config.MCP_SERVER_NAME,
-    version: '0.5.0',
-  });
+  const server = new McpServer(
+    {
+      name: config.MCP_SERVER_NAME,
+      version: '0.5.0',
+    },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
   server.registerTool(
     'wiki_list_pages',
@@ -97,7 +136,7 @@ export function buildServer(): McpServer {
           .string()
           .optional()
           .describe(
-            'Page path WITHOUT leading slash and WITHOUT locale prefix, e.g. "infrastructure/backup-concept". NOT the full URL. Ignored if "id" is given.',
+            'Page path, e.g. "infrastructure/backup-concept". Prefer the canonical form (no leading slash, no locale prefix); sloppy input is normalized automatically. Ignored if "id" is given.',
           ),
         locale: localeParam,
       },
@@ -112,10 +151,11 @@ export function buildServer(): McpServer {
             ),
           );
         }
+        const effectiveLocale = locale ?? config.WIKIJS_DEFAULT_LOCALE;
         const page =
           id !== undefined
             ? await client.getPageById(id)
-            : await client.getPageByPath(path!, locale ?? config.WIKIJS_DEFAULT_LOCALE);
+            : await client.getPageByPath(normalizePath(path!, effectiveLocale), effectiveLocale);
         return success(`Page ${page.id} ("${page.title}", path: ${page.path}).`, page);
       } catch (error) {
         return failure(error);
@@ -168,17 +208,16 @@ export function buildServer(): McpServer {
     {
       title: 'Create a wiki page',
       description:
-        'Create a NEW page in the wiki. Fails if a page already exists at the given path — in that case use wiki_update_page instead. ' +
+        'Create a NEW page in the wiki. If a page already exists at the target path, this fails and tells you the existing page id — use wiki_update_page then. ' +
         'Before creating, consider calling wiki_search_pages to check whether a similar page already exists. ' +
-        'Returns the id and path of the created page.',
+        'Write complete, well-structured Markdown for "content" — never create a near-empty page. Returns the id and path of the created page.',
       inputSchema: {
-        title: z.string().min(1).describe('Human-readable page title, e.g. "Backup Concept".'),
+        title: z.string().min(1).describe('Human-readable page title, e.g. "Backup Concept" or "SSH Dummy Accounts".'),
         path: z
           .string()
-          .min(1)
-          .regex(/^[^/].*$/, 'Path must not start with a slash.')
+          .optional()
           .describe(
-            'Target path WITHOUT leading slash and WITHOUT locale prefix, lowercase with hyphens, e.g. "infrastructure/backup-concept". NOT a URL.',
+            'Target path, e.g. "infrastructure/backup-concept". OPTIONAL — if omitted, it is derived from the title. Sloppy input (leading slash, spaces, umlauts, uppercase) is normalized automatically. Use "/" to place the page in a section, e.g. "team/onboarding".',
           ),
         content: z
           .string()
@@ -202,14 +241,37 @@ export function buildServer(): McpServer {
     },
     async ({ title, path, content, description, tags, isPublished, locale }) => {
       try {
+        const effectiveLocale = locale ?? config.WIKIJS_DEFAULT_LOCALE;
+        const finalPath = normalizePath(path?.trim() ? path : title, effectiveLocale);
+        if (!finalPath) {
+          return failure(
+            new Error('Could not derive a valid path from the given title/path. Provide a path like "section/page-name".'),
+          );
+        }
+
+        // Proactive duplicate check so the model gets the existing id directly.
+        let existing = null;
+        try {
+          existing = await client.getPageByPath(finalPath, effectiveLocale);
+        } catch {
+          // Not found (or wiki unreachable — createPage below will surface that).
+        }
+        if (existing) {
+          return failure(
+            new Error(
+              `A page already exists at "${finalPath}" (id ${existing.id}, title "${existing.title}"). Do not create a duplicate — read it with wiki_get_page (id ${existing.id}) and, if appropriate, modify it with wiki_update_page.`,
+            ),
+          );
+        }
+
         const page = await client.createPage({
           title,
-          path,
+          path: finalPath,
           content,
           description: description ?? '',
           editor: 'markdown',
           isPublished: isPublished ?? true,
-          locale: locale ?? config.WIKIJS_DEFAULT_LOCALE,
+          locale: effectiveLocale,
           tags: tags ?? [],
         });
         return success(`Created page ${page.id} ("${page.title}") at path "${page.path}".`, page);
@@ -256,7 +318,7 @@ export function buildServer(): McpServer {
         const page = await client.updatePage(id, {
           content,
           title,
-          path,
+          path: path !== undefined ? normalizePath(path, locale ?? config.WIKIJS_DEFAULT_LOCALE) : undefined,
           description,
           tags,
           isPublished,

@@ -17,7 +17,12 @@ Wiki.js wird über seine **GraphQL-API** (`/graphql`) mit einem Bearer-API-Key a
 
 Mit `WIKIJS_READ_ONLY=true` werden nur die drei Lese-Tools registriert.
 
-Alle Tools und Parameter sind ausführlich beschrieben (inkl. Beispielen und Workflow-Hinweisen), damit auch schwächere LLMs die Schnittstelle zuverlässig nutzen.
+Alle Tools und Parameter sind ausführlich beschrieben (inkl. Beispielen und Workflow-Hinweisen), damit auch schwächere LLMs die Schnittstelle zuverlässig nutzen. Zusätzlich macht der Server vage Anweisungen wie „erstelle eine Seite mit ssh-dummy-accounts" robust:
+
+- **Server-Instructions**: Beim MCP-Handshake bekommt der Client einen Workflow-Leitfaden (erst suchen, Struktur ansehen, vollständiges Markdown schreiben, dann anlegen).
+- **Auto-Pfad**: Bei `wiki_create_page` ist `path` optional und wird aus dem Titel abgeleitet („SSH Dummy Accounts" → `ssh-dummy-accounts`).
+- **Pfad-Normalisierung**: Führende Slashes, Locale-Präfixe, URLs, Umlaute, Leerzeichen und Großschreibung werden automatisch bereinigt (`/de/Infrastruktur/Backup Konzept` → `infrastruktur/backup-konzept`).
+- **Duplikat-Schutz**: Existiert am Zielpfad schon eine Seite, schlägt `wiki_create_page` fehl und nennt die vorhandene Seiten-ID mit dem Hinweis, stattdessen `wiki_update_page` zu nutzen.
 
 ## Voraussetzungen
 
