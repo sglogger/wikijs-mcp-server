@@ -54,11 +54,6 @@ const flexInt = z.preprocess(
   z.number({ invalid_type_error: 'Expected an integer number, e.g. 50 (not a string like "*").' }).int(),
 );
 
-// Browser URL of a page, e.g. https://wiki.example.com/en/infrastructure/backup
-function pageUrl(path: string, locale: string): string {
-  return `${config.WIKIJS_BASE_URL}/${locale}/${path}`;
-}
-
 const SERVER_INSTRUCTIONS = `This server manages a Wiki.js knowledge base.
 
 Recommended workflows:
@@ -77,12 +72,19 @@ export type BuildServerOptions = {
   pathPrefix?: string;
   /** Disable the write tools. Defaults to WIKIJS_READ_ONLY. */
   readOnly?: boolean;
+  /** Public, browser-facing wiki URL for the "url" fields. Defaults to WIKIJS_URL. */
+  publicUrl?: string;
 };
 
 export function buildServer(options: BuildServerOptions = {}): McpServer {
   const client = options.client ?? defaultClient;
   const scope = normalizePath(options.pathPrefix ?? config.WIKIJS_PATH_PREFIX, config.WIKIJS_DEFAULT_LOCALE);
   const readOnly = options.readOnly ?? config.WIKIJS_READ_ONLY;
+  // Browser URL of a page, e.g. https://wiki.example.com/en/infrastructure/backup.
+  // Deliberately not the API base URL: the server may reach Wiki.js under an
+  // internal address (http://wiki:3000) that is not clickable for users.
+  const publicUrl = (options.publicUrl ?? config.WIKIJS_URL).replace(/\/+$/, '');
+  const pageUrl = (path: string, locale: string) => `${publicUrl}/${locale}/${path}`;
 
   const scopeNote = scope
     ? ` This server is restricted to the wiki section "${scope}" — only pages at "${scope}" or below it are accessible.`
@@ -616,7 +618,8 @@ async function startHttp() {
   console.error(
     `${config.MCP_SERVER_NAME} listening on http://${config.MCP_HTTP_HOST}:${config.MCP_HTTP_PORT}/mcp` +
       (config.MCP_AUTH_TOKEN ? ' (bearer auth enabled)' : ' (no auth — set MCP_AUTH_TOKEN to protect the endpoint)') +
-      (config.WIKIJS_PATH_PREFIX ? ` — scoped to wiki section "${config.WIKIJS_PATH_PREFIX}"` : ''),
+      (config.WIKIJS_PATH_PREFIX ? ` — scoped to wiki section "${config.WIKIJS_PATH_PREFIX}"` : '') +
+      ` — page links use ${config.WIKIJS_URL}`,
   );
 }
 

@@ -41,7 +41,8 @@ cp .env.example .env
 
 | Variable | Bedeutung | Default |
 | --- | --- | --- |
-| `WIKIJS_BASE_URL` | Basis-URL der Wiki.js-Instanz (ohne `/graphql`) | — (Pflicht) |
+| `WIKIJS_BASE_URL` | Adresse, unter der **der Server** die GraphQL-API erreicht (ohne `/graphql`) | — (Pflicht) |
+| `WIKIJS_URL` | Öffentliche Browser-URL für die `url`-Felder der Seiten | leer (= `WIKIJS_BASE_URL`) |
 | `WIKIJS_API_KEY` | API-Key aus Wiki.js | — (Pflicht) |
 | `WIKIJS_DEFAULT_LOCALE` | Standard-Locale für Seiten | `en` |
 | `WIKIJS_READ_ONLY` | `true` = keine Schreib-Tools | `false` |
@@ -50,6 +51,24 @@ cp .env.example .env
 | `MCP_HTTP_HOST` / `MCP_HTTP_PORT` | Bind-Adresse des HTTP-Endpunkts | `0.0.0.0` / `3123` |
 | `MCP_AUTH_TOKEN` | Optionaler Bearer-Token zum Schutz des Endpunkts (empfohlen) | leer |
 | `MCP_SERVER_NAME` | Anzeigename des Servers | `wikijs-mcp-server` |
+
+### Interne API-Adresse vs. öffentliche Links
+
+Jede zurückgegebene Seite enthält ein `url`-Feld, das der Agent als Quelle zitiert. Läuft der Server im selben Docker-Netz wie Wiki.js, erreicht er die API oft unter einem internen Namen, den ein Benutzer im Browser nicht öffnen kann. Dafür gibt es zwei getrennte Variablen:
+
+```bash
+WIKIJS_BASE_URL=http://wiki:3000          # nur für die GraphQL-API des Servers
+WIKIJS_URL=https://wiki.hacktober.ch      # nur für die zitierten Links
+```
+
+Ergebnis:
+
+```
+http://wiki:3000/graphql                                        <- API-Aufrufe
+https://wiki.hacktober.ch/en/CTF2025/hosts/10-10-20-12-dev3     <- url-Feld
+```
+
+Ist `WIKIJS_URL` leer oder nicht gesetzt, wird `WIKIJS_BASE_URL` verwendet — bestehende Setups ändern sich also nicht. Ein abschließender Slash wird entfernt.
 
 ## Pfad-Präfix-Filter (`wiki_list_pages`)
 

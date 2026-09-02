@@ -19,10 +19,16 @@ services:
     ports:
       - "3123:3123"
     environment:
+      # Adresse, unter der DIESER Container die Wiki.js-API erreicht.
       WIKIJS_BASE_URL: ${WIKIJS_BASE_URL}
+      # Öffentliche Browser-URL für die zitierten Links. Setzen, wenn
+      # WIKIJS_BASE_URL eine interne Adresse wie http://wiki:3000 ist.
+      WIKIJS_URL: ${WIKIJS_URL:-}
       WIKIJS_API_KEY: ${WIKIJS_API_KEY}
       WIKIJS_DEFAULT_LOCALE: ${WIKIJS_DEFAULT_LOCALE:-en}
       WIKIJS_READ_ONLY: ${WIKIJS_READ_ONLY:-false}
+      # Optional: alle Tools hart auf einen Wiki-Bereich beschränken.
+      WIKIJS_PATH_PREFIX: ${WIKIJS_PATH_PREFIX:-}
       MCP_TRANSPORT: http
       MCP_HTTP_HOST: 0.0.0.0
       MCP_HTTP_PORT: "3123"
@@ -50,7 +56,9 @@ services:
   #     DB_NAME: wiki
   #   ports:
   #     - "3000:3000"
-  #   # In der .env dann: WIKIJS_BASE_URL=http://wiki:3000
+  #   # In der .env dann:
+  #   #   WIKIJS_BASE_URL=http://wiki:3000        (intern, für die API)
+  #   #   WIKIJS_URL=https://wiki.example.com     (öffentlich, für die Links)
   #
   # db:
   #   image: postgres:15-alpine

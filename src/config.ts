@@ -8,6 +8,18 @@ const envSchema = z.object({
     .string()
     .url()
     .transform((value) => value.replace(/\/+$/, '')),
+  // Public, browser-facing URL of the wiki. Set this when the server reaches
+  // Wiki.js under an internal address (e.g. http://wiki:3000 inside Docker)
+  // but users open it under a different one (https://wiki.example.com).
+  // Only the "url" fields of returned pages use it. Empty = same as base URL.
+  // An empty value in .env means "not set", not "invalid URL".
+  WIKIJS_URL: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z
+      .string()
+      .url('WIKIJS_URL must be a full URL including the scheme, e.g. https://wiki.hacktober.ch')
+      .optional(),
+  ),
   WIKIJS_API_KEY: z
     .string()
     .min(1, 'WIKIJS_API_KEY is required. Create one in Wiki.js under Administration → API Access.'),
@@ -32,4 +44,6 @@ export const config = {
   ...parsed,
   // "/CTF2026/", "CTF2026" and "/en/CTF2026" all normalize to "ctf2026".
   WIKIJS_PATH_PREFIX: normalizePath(parsed.WIKIJS_PATH_PREFIX, parsed.WIKIJS_DEFAULT_LOCALE),
+  // Falls back to the API base URL, so existing setups are unaffected.
+  WIKIJS_URL: ((parsed.WIKIJS_URL as string | undefined) ?? parsed.WIKIJS_BASE_URL).replace(/\/+$/, ''),
 };

@@ -145,6 +145,7 @@ export async function withServer(
     client: fake as unknown as WikiJsClient,
     pathPrefix: options.pathPrefix ?? '',
     readOnly: options.readOnly ?? false,
+    ...(options.publicUrl === undefined ? {} : { publicUrl: options.publicUrl }),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const mcp = new Client({ name: 'test-client', version: '1.0.0' });
