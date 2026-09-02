@@ -4,10 +4,22 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { BuildServerOptions } from '../src/server.js';
 import type { WikiJsClient } from '../src/wikiClient.js';
 
-// The config module validates the environment at import time.
-process.env.WIKIJS_BASE_URL ??= 'https://wiki.example.test';
-process.env.WIKIJS_API_KEY ??= 'test-key';
-process.env.WIKIJS_DEFAULT_LOCALE ??= 'en';
+// The config module validates the environment at import time. These are set
+// unconditionally and BEFORE src/config.ts is imported, so the suite is
+// hermetic: a real .env in the checkout cannot change the expected values
+// (dotenv never overrides variables that are already set).
+
+const TEST_ENV = {
+  WIKIJS_BASE_URL: 'https://wiki.example.test',
+  WIKIJS_URL: '',
+  WIKIJS_API_KEY: 'test-key',
+  WIKIJS_DEFAULT_LOCALE: 'en',
+  WIKIJS_READ_ONLY: 'false',
+  WIKIJS_PATH_PREFIX: '',
+  MCP_AUTH_TOKEN: '',
+  MCP_SERVER_NAME: 'wikijs-mcp-server',
+};
+for (const [key, value] of Object.entries(TEST_ENV)) process.env[key] = value;
 
 export type FakePage = {
   id: number;

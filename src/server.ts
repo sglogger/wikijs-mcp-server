@@ -10,6 +10,9 @@ import { config } from './config.js';
 import { fuzzyPathKey, normalizePath, pathMatchesPrefix, resolveFilterPrefix } from './paths.js';
 import { WikiJsClient } from './wikiClient.js';
 
+// Keep in sync with package.json — test/version.test.ts asserts they match.
+export const SERVER_VERSION = '0.7.0';
+
 const defaultClient = new WikiJsClient(config.WIKIJS_BASE_URL, config.WIKIJS_API_KEY);
 
 function success(summary: string, data: unknown) {
@@ -103,7 +106,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   const server = new McpServer(
     {
       name: config.MCP_SERVER_NAME,
-      version: '0.6.0',
+      version: SERVER_VERSION,
     },
     { instructions: SERVER_INSTRUCTIONS + (scope ? `\n\nAll tools are scoped to the wiki section "${scope}".` : '') },
   );

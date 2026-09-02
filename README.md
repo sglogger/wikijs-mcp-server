@@ -4,6 +4,8 @@ MCP-Server, der eine **Wiki.js-2.x**-Instanz als Tools bereitstellt — gedacht 
 
 Wiki.js wird über seine **GraphQL-API** (`/graphql`) mit einem Bearer-API-Key angesprochen.
 
+Version 0.7.0 — Änderungen siehe [CHANGELOG.md](CHANGELOG.md).
+
 ## Tools
 
 | Tool | Beschreibung |
@@ -25,6 +27,7 @@ Alle Tools und Parameter sind ausführlich beschrieben (inkl. Beispielen und Wor
 - **Duplikat-Schutz**: Existiert am Zielpfad schon eine Seite, schlägt `wiki_create_page` fehl und nennt die vorhandene Seiten-ID mit dem Hinweis, stattdessen `wiki_update_page` zu nutzen.
 - **Such-Fallback**: Liefert der Wiki.js-Suchindex 0 Treffer (die Standard-„Database"-Engine findet Begriffe im Seiteninhalt oft nicht), scannt der Server die Seiteninhalte direkt (bis 200 Seiten) und liefert Treffer inkl. Text-Snippet. Pfadfilter werden dabei normalisiert (`CTF2026` → `ctf2026`).
 - **Pfad-Präfix-Filter**: `wiki_list_pages` und `wiki_search` nehmen ein optionales `path`. Es wirkt als Präfix über ganze Pfadsegmente, nicht als `startsWith` — `ctf2026` liefert `ctf2026` und `ctf2026/...`, aber niemals `ctf20260`, `ctf2026-old` oder `foo/ctf2026`. Bei `wiki_list_pages` wird erst gefiltert und dann `limit` angewendet, `limit: 100` liefert also bis zu 100 **passende** Seiten.
+- **Anklickbare Quellen**: Jede Seite bringt ein `url`-Feld mit, das der Agent als Quelle zitieren soll. Die Basis dafür ist `WIKIJS_URL` und damit unabhängig von der API-Adresse — interne Docker-Adressen tauchen nicht mehr in Chat-Antworten auf.
 - **Unscharfe Pfad-Auflösung**: Schlägt `wiki_get_page` mit einem Pfad fehl, wird er tolerant gegen die echte Seitenliste gematcht — Groß-/Kleinschreibung, Punkt-vs-Bindestrich (`10-0-0-0-27` findet `10.0.0.0-27`) und Locale-Unterschiede werden aufgelöst; bei Beinahe-Treffern werden existierende ähnliche Seiten mit ihren IDs vorgeschlagen.
 
 ## Voraussetzungen
@@ -212,10 +215,22 @@ Falsch — Wildcards und String-Zahlen:
 npm test
 ```
 
-Führt die Node-eigene Test-Runner-Suite (`node --test`) über `test/` aus. Abgedeckt sind unter anderem: Pfad-Normalisierung, Segment-genaues Präfix-Matching (inkl. `CTF20260` / `CTF2026-old`), `wiki_list_pages` mit und ohne `path`, Filter-vor-Limit, Typprüfung von `limit`/`orderBy`, Kombination von `tags` und `path` sowie die Durchsetzung von `WIKIJS_PATH_PREFIX` in allen sechs Page-Tools.
+Führt die Node-eigene Test-Runner-Suite (`node --test`) über `test/` aus — aktuell **73 Tests**. Ein Wiki.js wird nicht gebraucht: die Tools laufen über den MCP-In-Memory-Transport gegen einen Fake-Client, und die Testumgebung wird fest gesetzt, eine vorhandene `.env` beeinflusst das Ergebnis also nicht.
+
+Abgedeckt sind unter anderem:
+
+| Bereich | Inhalt |
+| --- | --- |
+| Pfade | Normalisierung von Slashes, Locale-Präfix und Wildcards; segment-genaues Präfix-Matching inkl. `CTF20260`, `CTF2026-old`, `foo/CTF2026` |
+| `wiki_list_pages` | mit und ohne `path`, exakter Treffer, Kindpfade, Filter **vor** Limit, `tags` + `path` kombiniert |
+| Schema | `limit` als Integer (`"*"`, `2.5`, `true`, `null`, Bereich 1–500), `orderBy`-Enum, veröffentlichtes JSON-Schema und Tool-Beschreibung |
+| `WIKIJS_PATH_PREFIX` | Durchsetzung in allen sechs Page-Tools, inkl. Verschiebeversuch aus dem Bereich heraus und der beiden Such-Fallbacks |
+| `WIKIJS_URL` | Fallback auf `WIKIJS_BASE_URL`, Trailing-Slash, Locale im Link, alle Tools mit `url`-Feld |
+| Version | `package.json` und die im MCP-Handshake gemeldete Version stimmen überein |
 
 ## Hinweise
 
 - Page-IDs sind in Wiki.js **Integer** (keine UUIDs).
 - Pfade werden **ohne** führenden Slash und ohne Locale-Präfix angegeben (`infrastruktur/backup`, nicht `/de/infrastruktur/backup`).
 - Wiki.js 3.x hat ein inkompatibles GraphQL-Schema und wird von diesem Server nicht unterstützt.
+- Nach einer Änderung an der `.env` den Container neu starten — die Konfiguration wird nur beim Start gelesen.
