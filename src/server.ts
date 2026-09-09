@@ -11,7 +11,7 @@ import { fuzzyPathKey, normalizePath, pathMatchesPrefix, resolveFilterPrefix } f
 import { WikiJsClient } from './wikiClient.js';
 
 // Keep in sync with package.json — test/version.test.ts asserts they match.
-export const SERVER_VERSION = '0.7.0';
+export const SERVER_VERSION = '0.7.1';
 
 const defaultClient = new WikiJsClient(config.WIKIJS_BASE_URL, config.WIKIJS_API_KEY);
 
@@ -459,7 +459,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       description:
         'Update an EXISTING wiki page, identified by its numeric id. ' +
         'IMPORTANT: the "content" field REPLACES the entire page content. To change only part of a page: 1) call wiki_get_page to load the current content, 2) apply your edits to that full text, 3) pass the complete modified Markdown here. ' +
-        'Fields you omit stay unchanged. Returns id and path of the updated page.' +
+        'Fields you omit stay unchanged — the page also stays published unless you explicitly pass isPublished=false. Returns id and path of the updated page.' +
         scopeNote,
       inputSchema: {
         id: flexInt.describe(
@@ -478,7 +478,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         tags: flexTags
           .optional()
           .describe('New COMPLETE tag list (replaces all existing tags). Omit to keep current tags.'),
-        isPublished: flexBool.optional().describe('true = published, false = hidden draft. Omit to keep current state.'),
+        isPublished: flexBool
+          .optional()
+          .describe('true = published, false = hidden draft. Omit to keep the page\'s current published state.'),
         locale: localeParam,
       },
       annotations: { destructiveHint: true },
@@ -487,21 +489,28 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       try {
         const effectiveLocale = locale ?? config.WIKIJS_DEFAULT_LOCALE;
         const newPath = path !== undefined ? normalizePath(path, effectiveLocale) : undefined;
+        let current: Awaited<ReturnType<typeof client.getPageById>> | undefined;
         if (scope) {
           // Refuse both editing a page outside the scope and moving one out of it.
-          const current = await client.getPageById(id);
+          current = await client.getPageById(id);
           assertInScope(current.path, `Page ${id} at`);
           if (newPath !== undefined) assertInScope(newPath, 'The new path');
         }
-        const page = await client.updatePage(id, {
-          content,
-          title,
-          path: newPath,
-          description,
-          tags,
-          isPublished,
-          locale,
-        });
+        const page = await client.updatePage(
+          id,
+          {
+            content,
+            title,
+            path: newPath,
+            description,
+            tags,
+            isPublished,
+            locale,
+          },
+          // Reuse the page the scope check already fetched; updatePage needs the
+          // current state to keep unmentioned fields (tags, published flag) intact.
+          current,
+        );
         return success(
           `Updated page ${id}.${'path' in page && page.path ? ' Share the "url" with the user.' : ''}`,
           'path' in page && page.path ? { ...page, url: pageUrl(page.path, effectiveLocale) } : page,

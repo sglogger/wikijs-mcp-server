@@ -4,6 +4,21 @@ Alle nennenswerten Änderungen an diesem Projekt. Das Format folgt lose
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die Versionierung
 [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.7.1]
+
+### Behoben
+
+- **Seiten bleiben beim Aktualisieren veröffentlicht.** Wiki.js' `pages.update`
+  führt die Mutation nicht mit der gespeicherten Seite zusammen: ein
+  weggelassenes `isPublished` wertet es als `false` aus, wodurch jede reine
+  Inhaltsänderung die Seite still auf „This page is not published" setzte.
+  `wiki_update_page` sendet jetzt immer den vollständigen Seitenzustand — die
+  Felder des Aufrufers über den aktuellen Werten der Seite.
+- **`wiki_update_page` ohne `tags` schlägt nicht mehr fehl.** Ohne Tags lief der
+  Wiki.js-Resolver in `Cannot read properties of undefined (reading 'map')`.
+  Weggelassene Tags werden nun aus der bestehenden Seite übernommen; dasselbe
+  gilt für `title`, `description`, `path` und `locale`.
+
 ## [0.7.0]
 
 ### Hinzugefügt

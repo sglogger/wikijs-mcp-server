@@ -257,6 +257,13 @@ export class WikiJsClient {
     return data.pages.create.page!;
   }
 
+  // Wiki.js' pages.update mutation does NOT merge with the stored page: it
+  // patches whatever it receives and derives the rest from the arguments alone.
+  // An omitted isPublished is read as `opts.isPublished === true` => false, so a
+  // plain content update silently unpublishes the page ("This page is not
+  // published."), and omitted tags crash the resolver in associateTags
+  // ("Cannot read properties of undefined (reading 'map')"). So we always send a
+  // full page state: the caller's fields on top of the page's current values.
   async updatePage(
     id: number,
     input: {
@@ -268,9 +275,21 @@ export class WikiJsClient {
       locale?: string;
       tags?: string[];
     },
+    current?: Page,
   ) {
+    const existing = current ?? (await this.getPageById(id));
+    const merged = {
+      title: input.title ?? existing.title,
+      path: input.path ?? existing.path,
+      content: input.content ?? existing.content,
+      description: input.description ?? existing.description,
+      // Updates stay published unless the caller explicitly asks for a draft.
+      isPublished: input.isPublished ?? existing.isPublished,
+      locale: input.locale ?? existing.locale,
+      tags: input.tags ?? existing.tags.map((t) => t.tag),
+    };
     const variables: Record<string, unknown> = { id };
-    for (const [key, value] of Object.entries(input)) {
+    for (const [key, value] of Object.entries(merged)) {
       if (value !== undefined) variables[key] = value;
     }
     const data = await this.graphql<{ pages: { update: MutationResult } }>(
