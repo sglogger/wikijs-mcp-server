@@ -14,7 +14,12 @@
 
 services:
   wikijs-mcp:
-    build: .
+    # Bei jedem `docker compose up` neu bauen und dabei das Basis-Image
+    # (node:22-alpine) frisch ziehen — so laufen immer die aktuellen Patches.
+    build:
+      context: .
+      pull: true
+    pull_policy: build
     restart: unless-stopped
     ports:
       - "3123:3123"
